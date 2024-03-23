@@ -61,7 +61,7 @@ default_cfgs = {
 
 
 def convolutional_stem(
-    in_channels: int, out_channels: int, inference_mode: bool = False
+    in_channels: int, out_channels: int, inference_mode: bool = False,act_layer:nn.Module=nn.ReLU6,
 ) -> nn.Sequential:
     """Build convolutional stem with MobileOne blocks.
 
@@ -84,6 +84,7 @@ def convolutional_stem(
             inference_mode=inference_mode,
             use_se=False,
             num_conv_branches=1,
+            activation=act_layer,
         ),
         MobileOneBlock(
             in_channels=out_channels,
@@ -95,6 +96,7 @@ def convolutional_stem(
             inference_mode=inference_mode,
             use_se=False,
             num_conv_branches=1,
+            activation=act_layer,
         ),
         MobileOneBlock(
             in_channels=out_channels,
@@ -106,6 +108,7 @@ def convolutional_stem(
             inference_mode=inference_mode,
             use_se=False,
             num_conv_branches=1,
+            activation=act_layer,
         ),
     )
 
@@ -182,6 +185,7 @@ class PatchEmbed(nn.Module):
         in_channels: int,
         embed_dim: int,
         inference_mode: bool = False,
+        activation:nn.Module=nn.ReLU6,
     ) -> None:
         """Build patch embedding layer.
 
@@ -203,6 +207,7 @@ class PatchEmbed(nn.Module):
                 groups=in_channels,
                 small_kernel=3,
                 inference_mode=inference_mode,
+                activation=activation,
             )
         )
         block.append(
@@ -216,6 +221,7 @@ class PatchEmbed(nn.Module):
                 inference_mode=inference_mode,
                 use_se=False,
                 num_conv_branches=1,
+                activation=activation
             )
         )
         self.proj = nn.Sequential(*block)
@@ -353,7 +359,7 @@ class ConvFFN(nn.Module):
         in_channels: int,
         hidden_channels: Optional[int] = None,
         out_channels: Optional[int] = None,
-        act_layer: nn.Module = nn.GELU,
+        act_layer: nn.Module = nn.ReLU6,
         drop: float = 0.0,
     ) -> None:
         """Build convolutional FFN module.
@@ -382,7 +388,7 @@ class ConvFFN(nn.Module):
         )
         self.conv.add_module("bn", nn.BatchNorm2d(num_features=out_channels))
         self.fc1 = nn.Conv2d(in_channels, hidden_channels, kernel_size=1)
-        self.act = act_layer()
+        self.act = act_layer(inplace=True)
         self.fc2 = nn.Conv2d(hidden_channels, out_channels, kernel_size=1)
         self.drop = nn.Dropout(drop)
         self.apply(self._init_weights)
@@ -529,7 +535,7 @@ class RepMixerBlock(nn.Module):
         dim: int,
         kernel_size: int = 3,
         mlp_ratio: float = 4.0,
-        act_layer: nn.Module = nn.GELU,
+        act_layer: nn.Module = nn.ReLU6,
         drop: float = 0.0,
         drop_path: float = 0.0,
         use_layer_scale: bool = True,
@@ -590,6 +596,17 @@ class RepMixerBlock(nn.Module):
             x = x + self.drop_path(self.convffn(x))
         return x
 
+    def reparameterize(self) -> None:
+        if self.use_layer_scale:
+            fc2_w=self.convffn.fc2.weight.data
+            fc2_b=self.convffn.fc2.bias.data
+            lc=self.layer_scale.data
+            self.use_layer_scale=False
+            fc2_w=fc2_w*lc[:,:,:,None]
+            fc2_b=fc2_b*lc[:,0,0]
+            self.convffn.fc2.weight.data=fc2_w.detach_()
+            self.convffn.fc2.bias.data=fc2_b.detach_()
+
 
 class AttentionBlock(nn.Module):
     """Implementation of metaformer block with MHSA as token mixer.
@@ -602,7 +619,7 @@ class AttentionBlock(nn.Module):
         self,
         dim: int,
         mlp_ratio: float = 4.0,
-        act_layer: nn.Module = nn.GELU,
+        act_layer: nn.Module = nn.ReLU6,
         norm_layer: nn.Module = nn.BatchNorm2d,
         drop: float = 0.0,
         drop_path: float = 0.0,
@@ -668,7 +685,7 @@ def basic_blocks(
     token_mixer_type: str,
     kernel_size: int = 3,
     mlp_ratio: float = 4.0,
-    act_layer: nn.Module = nn.GELU,
+    act_layer: nn.Module = nn.ReLU6,
     norm_layer: nn.Module = nn.BatchNorm2d,
     drop_rate: float = 0.0,
     drop_path_rate: float = 0.0,
@@ -753,8 +770,8 @@ class FastViT(nn.Module):
         downsamples=None,
         repmixer_kernel_size=3,
         norm_layer: nn.Module = nn.BatchNorm2d,
-        act_layer: nn.Module = nn.GELU,
-        num_classes=1000,
+        act_layer: nn.Module = nn.ReLU6,
+        num_classes=101,
         pos_embs=None,
         down_patch_size=7,
         down_stride=2,
@@ -780,7 +797,7 @@ class FastViT(nn.Module):
             pos_embs = [None] * len(layers)
 
         # Convolutional stem
-        self.patch_embed = convolutional_stem(3, embed_dims[0], inference_mode)
+        self.patch_embed = convolutional_stem(3, embed_dims[0], inference_mode,act_layer=act_layer)
 
         # Build the main stages of the network architecture
         network = []
@@ -820,6 +837,7 @@ class FastViT(nn.Module):
                         in_channels=embed_dims[i],
                         embed_dim=embed_dims[i + 1],
                         inference_mode=inference_mode,
+                        activation=act_layer,
                     )
                 )
 
@@ -852,6 +870,7 @@ class FastViT(nn.Module):
                 inference_mode=inference_mode,
                 use_se=True,
                 num_conv_branches=1,
+                activation=act_layer,
             )
             self.head = (
                 nn.Linear(int(embed_dims[-1] * cls_ratio), num_classes)
@@ -952,6 +971,26 @@ class FastViT(nn.Module):
         cls_out = self.head(x)
         return cls_out
 
+@register_model
+def fastvit_t4(pretrained=False, **kwargs):
+    """Instantiate FastViT-T4 model variant."""
+    layers = [1, 1, 2, 1]
+    embed_dims = [24, 48, 96, 192]
+    mlp_ratios = [2, 2, 1, 1]
+    downsamples = [True, True, True, True]
+    token_mixers = ("repmixer", "repmixer", "repmixer", "repmixer")
+    model = FastViT(
+        layers,
+        token_mixers=token_mixers,
+        embed_dims=embed_dims,
+        mlp_ratios=mlp_ratios,
+        downsamples=downsamples,
+        **kwargs,
+    )
+    model.default_cfg = default_cfgs["fastvit_t"]
+    # if pretrained:
+    #     raise ValueError("Functionality not implemented.")
+    return model
 
 @register_model
 def fastvit_t8(pretrained=False, **kwargs):

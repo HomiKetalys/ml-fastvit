@@ -17,12 +17,15 @@ import csv
 import glob
 import time
 import logging
+
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.parallel
 from collections import OrderedDict
 from contextlib import suppress
 
+import yaml
 from timm.layers import apply_test_time_pool
 from timm.models import create_model, load_checkpoint, is_model, list_models
 from timm.data import (
@@ -40,6 +43,7 @@ from timm.utils import (
 )
 
 import models
+from common_utils.utils import tfOrtModelRuner
 from models.modules.mobileone import reparameterize_model
 
 has_apex = False
@@ -60,9 +64,8 @@ except AttributeError:
 torch.backends.cudnn.benchmark = True
 _logger = logging.getLogger("validate")
 
-
 parser = argparse.ArgumentParser(description="PyTorch ImageNet Validation")
-parser.add_argument("data", metavar="DIR", help="path to dataset")
+parser.add_argument("--data_dir", default="", metavar="DIR", help="path to dataset")
 parser.add_argument(
     "--dataset",
     "-d",
@@ -277,30 +280,110 @@ parser.add_argument(
     help="use inference mode version of model definition.",
 )
 
+activations = {
+    "ReLU": nn.ReLU,
+    "ReLU6": nn.ReLU6,
+}
 
-def validate(args):
+
+class ClassifierTfOrt():
+    def __init__(self, cfg, model_root):
+        super(ClassifierTfOrt, self).__init__()
+        name_list = os.listdir(model_root)
+        model_front_path = None
+        model_post_path = None
+        model_path = None
+        self.separation = cfg["separation"]
+        self.separation_scale = cfg["separation_scale"]
+        for name in name_list:
+            if name.endswith(".tflite") or name.endswith(".onnx"):
+                if "front" in name:
+                    model_front_path = os.path.join(model_root, name)
+                elif "post" in name:
+                    model_post_path = os.path.join(model_root, name)
+                else:
+                    model_path = os.path.join(model_root, name)
+        if model_path is None:
+            assert os.path.splitext(model_front_path)[-1] == os.path.splitext(model_post_path)[-1]
+            self.model_type = os.path.splitext(model_front_path)[-1]
+            self.model_front = tfOrtModelRuner(model_front_path)
+            self.model_post = tfOrtModelRuner(model_post_path)
+            if model_front_path.endswith(".tflite"):
+                std0, mean0 = self.model_front.model_output_details[0]["quantization"]
+                std1, mean1 = self.model_post.model_input_details["quantization"]
+                self.fix0 = std0 / std1
+                self.fix1 = -self.fix0 * mean0 + mean1
+            self.sp = 1
+            self.weight, self.bias = self.model_front.model_input_details["quantization"]
+        else:
+            self.model = tfOrtModelRuner(model_path)
+            self.sp = 0
+            self.model_type = os.path.splitext(model_path)[-1]
+            self.weight, self.bias = self.model.model_input_details["quantization"]
+
+    def __call__(self, inputs):
+        pred_list0 = []
+        for x in inputs:
+            if self.model_type == ".tflite":
+                x = np.clip(x.permute(1, 2, 0).cpu().numpy() / self.weight + self.bias, -128, 127)
+                x = x.astype("int8")
+                h, w, c = x.shape[:3]
+            else:
+                x = x.cpu().numpy()
+                c, h, w = x.shape[:3]
+            h0 = h
+            w0 = w
+            if self.sp == 1:
+                y_list = []
+                for r in range(0, self.separation_scale):
+                    for c in range(0, self.separation_scale):
+                        if self.model_type == ".tflite":
+                            x_ = x[None, r * h // self.separation_scale:(r + 1) * h // self.separation_scale,
+                                 c * w // self.separation_scale:(c + 1) * w // self.separation_scale, :]
+                        else:
+                            x_ = x[None, :, r * h // self.separation_scale:(r + 1) * h // self.separation_scale,
+                                 c * w // self.separation_scale:(c + 1) * w // self.separation_scale]
+                        y = self.model_front(x_)[0]
+                        y_list.append(y)
+
+                if self.model_type == ".tflite":
+                    h, w, c = y_list[0].shape[:3]
+                    y = np.zeros((h * self.separation_scale, w * self.separation_scale, c), dtype="int8")
+                else:
+                    c, h, w = y_list[0].shape[:3]
+                    y = np.zeros((c, h * self.separation_scale, w * self.separation_scale), dtype="float32")
+                id = 0
+                for r in range(0, self.separation_scale):
+                    for c in range(0, self.separation_scale):
+                        if self.model_type == ".tflite":
+                            y[r * h:(r + 1) * h, c * w:(c + 1) * w, :] = y_list[id]
+                        else:
+                            y[:, r * h:(r + 1) * h, c * w:(c + 1) * w] = y_list[id]
+                        id += 1
+
+                y = y[None, :, :, :].astype('float32')
+                if self.model_type == ".tflite":
+                    y = np.clip(y * self.fix0 + self.fix1, -128, 127)
+                    y = y.astype('int8')
+                out = self.model_post(y)
+
+            else:
+                out = self.model(x[None, :, :, :])
+            out0 = torch.tensor(out, device=inputs.device)
+            pred_list0.append(out0)
+        out0 = torch.cat(pred_list0, dim=0)
+        return out0
+
+
+def cfg_analyzer(cfg_path, model_path, eval_type,img_size):
+    with open(cfg_path, "r") as f:
+        cfg = yaml.safe_load(f)
+        parser.set_defaults(**cfg)
+    args = parser.parse_args()
     # might as well try to validate something
     args.pretrained = args.pretrained or not args.checkpoint
     args.prefetcher = not args.no_prefetcher
     amp_autocast = suppress  # do nothing
-    if args.amp:
-        if has_native_amp:
-            args.native_amp = True
-        elif has_apex:
-            args.apex_amp = True
-        else:
-            _logger.warning("Neither APEX or Native Torch AMP is available.")
-    assert not args.apex_amp or not args.native_amp, "Only one AMP mode should be set."
-    if args.native_amp:
-        amp_autocast = torch.cuda.amp.autocast
-        _logger.info("Validating in mixed precision with native PyTorch AMP.")
-    elif args.apex_amp:
-        _logger.info("Validating in mixed precision with NVIDIA APEX AMP.")
-    else:
-        _logger.info("Validating in float32. AMP not enabled.")
-
-    if args.legacy_jit:
-        set_jit_legacy()
 
     # create model
     model = create_model(
@@ -311,22 +394,20 @@ def validate(args):
         global_pool=args.gp,
         scriptable=args.torchscript,
         inference_mode=args.use_inference_mode,
+        activation=activations[args.global_act],
+        separation=args.separation,
+        separation_scale=args.separation_scale,
     )
-    if args.num_classes is None:
-        assert hasattr(
-            model, "num_classes"
-        ), "Model must have `num_classes` attr if not set on cmd line/config."
-        args.num_classes = model.num_classes
 
-    if args.checkpoint:
-        load_checkpoint(model, args.checkpoint, args.use_ema)
+    if eval_type == 0:
+        load_checkpoint(model, model_path, args.use_ema)
 
     # Reparameterize model
     model.eval()
     if not args.use_inference_mode:
         _logger.info("Reparameterizing Model %s" % (args.model))
         model = reparameterize_model(model)
-    setattr(model, "pretrained_cfg", model.__dict__["default_cfg"])
+    # setattr(model, "pretrained_cfg", model.__dict__["default_cfg"])
 
     data_config = resolve_data_config(
         vars(args), model=model, use_test_size=True, verbose=True
@@ -337,24 +418,10 @@ def validate(args):
             model, data_config, use_test_size=True
         )
 
-    if args.torchscript:
-        torch.jit.optimized_execution(True)
-        model = torch.jit.script(model)
-
-    model = model.cuda()
-    if args.apex_amp:
-        model = amp.initialize(model, opt_level="O1")
-
-    if args.channels_last:
-        model = model.to(memory_format=torch.channels_last)
-
-    if args.num_gpu > 1:
-        model = torch.nn.DataParallel(model, device_ids=list(range(args.num_gpu)))
-
     criterion = nn.CrossEntropyLoss().cuda()
 
     dataset = create_dataset(
-        root=args.data,
+        root=args.data_dir,
         name=args.dataset,
         split=args.split,
         download=args.dataset_download,
@@ -377,6 +444,8 @@ def validate(args):
         real_labels = None
 
     crop_pct = 1.0 if test_time_pool else data_config["crop_pct"]
+    if img_size is not None:
+        data_config["input_size"]=(data_config["input_size"][0],img_size[0],img_size[1])
     loader = create_loader(
         dataset,
         input_size=data_config["input_size"],
@@ -397,6 +466,15 @@ def validate(args):
     top5 = AverageMeter()
 
     model.eval()
+    model.cuda()
+    if eval_type != 0:
+        model = ClassifierTfOrt(cfg, model_path)
+    return model, args, data_config, amp_autocast, valid_labels, criterion, real_labels, batch_time, loader, losses, top1, top5, crop_pct
+
+
+def validate(cfg_path, model_path, eval_type,img_size=None):
+    model, args, data_config, amp_autocast, valid_labels, criterion, real_labels, batch_time, loader, losses, top1, top5, crop_pct = cfg_analyzer(
+        cfg_path, model_path, eval_type,img_size)
     with torch.no_grad():
         # warmup, reduce variability of first batch time, especially for comparing torchscript vs non
         input = torch.randn(
@@ -471,7 +549,6 @@ def validate(args):
             results["top1"], results["top1_err"], results["top5"], results["top5_err"]
         )
     )
-
     return results
 
 

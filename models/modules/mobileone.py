@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 __all__ = ["MobileOneBlock", "reparameterize_model"]
-
+MULTI_DEPWISE_CONV=True
 
 class SEBlock(nn.Module):
     """Squeeze and Excite module.
@@ -47,9 +47,9 @@ class SEBlock(nn.Module):
         b, c, h, w = inputs.size()
         x = F.avg_pool2d(inputs, kernel_size=[h, w])
         x = self.reduce(x)
-        x = F.relu(x)
+        x = F.relu6(x,inplace=True)
         x = self.expand(x)
-        x = torch.sigmoid(x)
+        x = F.hardsigmoid(x,inplace=True)
         x = x.view(-1, c, 1, 1)
         return inputs * x
 
@@ -78,7 +78,7 @@ class MobileOneBlock(nn.Module):
         use_act: bool = True,
         use_scale_branch: bool = True,
         num_conv_branches: int = 1,
-        activation: nn.Module = nn.GELU(),
+        activation: nn.Module = nn.ReLU6,
     ) -> None:
         """Construct a MobileOneBlock module.
 
@@ -114,7 +114,7 @@ class MobileOneBlock(nn.Module):
             self.se = nn.Identity()
 
         if use_act:
-            self.activation = activation
+            self.activation = activation(inplace=True)
         else:
             self.activation = nn.Identity()
 
@@ -157,7 +157,14 @@ class MobileOneBlock(nn.Module):
         """Apply forward pass."""
         # Inference mode forward pass.
         if self.inference_mode:
-            return self.activation(self.se(self.reparam_conv(x)))
+            if self.out_channels<=self.in_channels or self.groups==1 or not MULTI_DEPWISE_CONV:
+                return self.activation(self.se(self.reparam_conv(x)))
+            out0 = self.reparam_conv0(x)
+            out1 = self.reparam_conv1(x)
+            out=torch.stack((out0,out1),dim=2)
+            bs,ch,on,h,w=out.shape
+            out=torch.reshape(out,(bs,on*ch,h,w))
+            return self.activation(self.se(out))
 
         # Multi-branched train-time forward pass.
         # Skip branch output
@@ -199,6 +206,34 @@ class MobileOneBlock(nn.Module):
         )
         self.reparam_conv.weight.data = kernel
         self.reparam_conv.bias.data = bias
+
+        if MULTI_DEPWISE_CONV:
+            self.reparam_conv0 = nn.Conv2d(
+                in_channels=self.in_channels,
+                out_channels=self.out_channels,
+                kernel_size=self.kernel_size,
+                stride=self.stride,
+                padding=self.padding,
+                dilation=self.dilation,
+                groups=self.in_channels,
+                bias=True,
+            )
+            self.reparam_conv1 = nn.Conv2d(
+                in_channels=self.in_channels,
+                out_channels=self.out_channels,
+                kernel_size=self.kernel_size,
+                stride=self.stride,
+                padding=self.padding,
+                dilation=self.dilation,
+                groups=self.in_channels,
+                bias=True,
+            )
+            self.reparam_conv.weight.data = kernel
+            self.reparam_conv.bias.data = bias
+            self.reparam_conv0.weight.data = kernel[0::2,:,:,:]
+            self.reparam_conv0.bias.data = bias[0::2]
+            self.reparam_conv1.weight.data = kernel[1::2,:,:,:]
+            self.reparam_conv1.bias.data = bias[1::2]
 
         # Delete un-used branches
         for para in self.parameters():

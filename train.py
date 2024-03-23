@@ -104,7 +104,7 @@ parser.add_argument(
 parser = argparse.ArgumentParser(description="PyTorch ImageNet Training")
 
 # Dataset parameters
-parser.add_argument("data_dir", metavar="DIR", help="path to dataset")
+parser.add_argument("data_dir", metavar="DIR",help="path to dataset")
 parser.add_argument(
     "--dataset",
     "-d",
@@ -838,6 +838,7 @@ parser.add_argument(
 )
 
 
+
 def _parse_args():
     # Do we have a config file to parse?
     args_config, remaining = config_parser.parse_known_args()
@@ -845,6 +846,7 @@ def _parse_args():
         with open(args_config.config, "r") as f:
             cfg = yaml.safe_load(f)
             parser.set_defaults(**cfg)
+            config_name=os.path.split(args_config.config)[-1]
 
     # The main arg parser parses the rest of the args, the usual
     # defaults will have been overridden if config file specified.
@@ -852,12 +854,16 @@ def _parse_args():
 
     # Cache the args as a text string to save them in the output dir later
     args_text = yaml.safe_dump(args.__dict__, default_flow_style=False)
-    return args, args_text
+    return args, args_text,config_name
 
+activations={
+    "ReLU":nn.ReLU,
+    "ReLU6":nn.ReLU6,
+}
 
 def main():
     setup_default_logging()
-    args, args_text = _parse_args()
+    args, args_text,config_name = _parse_args()
 
     if args.log_wandb:
         if has_wandb:
@@ -923,6 +929,9 @@ def main():
         bn_eps=args.bn_eps,
         scriptable=args.torchscript,
         checkpoint_path=args.initial_checkpoint,
+        act_layer=activations[args.global_act],
+        separation=args.separation,
+        separation_scale=args.separation_scale,
     )
     if args.num_classes is None:
         assert hasattr(
@@ -1270,7 +1279,7 @@ def main():
             decreasing=decreasing,
             max_history=args.checkpoint_hist,
         )
-        with open(os.path.join(output_dir, "args.yaml"), "w") as f:
+        with open(os.path.join(output_dir, config_name), "w") as f:
             f.write(args_text)
 
     try:

@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 
 __all__ = ["ReparamLargeKernelConv"]
-
+MULTI_DEPWISE_CONV=True
 
 class ReparamLargeKernelConv(nn.Module):
     """Building Block of RepLKNet
@@ -28,7 +28,7 @@ class ReparamLargeKernelConv(nn.Module):
         groups: int,
         small_kernel: int,
         inference_mode: bool = False,
-        activation: nn.Module = nn.GELU(),
+        activation: nn.Module = nn.ReLU6,
     ) -> None:
         """Construct a ReparamLargeKernelConv module.
 
@@ -48,7 +48,7 @@ class ReparamLargeKernelConv(nn.Module):
         self.groups = groups
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.activation = activation
+        self.activation = activation()
 
         self.kernel_size = kernel_size
         self.small_kernel = small_kernel
@@ -78,14 +78,21 @@ class ReparamLargeKernelConv(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Apply forward pass."""
-        if hasattr(self, "lkb_reparam"):
-            out = self.lkb_reparam(x)
+        if hasattr(self, "lkb_reparam0"):
+            if MULTI_DEPWISE_CONV:
+                out0 = self.lkb_reparam0(x)
+                out1 = self.lkb_reparam1(x)
+                out=torch.stack((out0,out1),dim=2)
+                bs,ch,on,h,w=out.shape
+                out=torch.reshape(out,(bs,on*ch,h,w))
+            else:
+                out = self.lkb_reparam0(x)
         else:
             out = self.lkb_origin(x)
             if hasattr(self, "small_conv"):
                 out += self.small_conv(x)
 
-        self.activation(out)
+        # self.activation(out)
         return out
 
     def get_kernel_bias(self) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -112,19 +119,48 @@ class ReparamLargeKernelConv(nn.Module):
         for inference.
         """
         eq_k, eq_b = self.get_kernel_bias()
-        self.lkb_reparam = nn.Conv2d(
-            in_channels=self.in_channels,
-            out_channels=self.out_channels,
-            kernel_size=self.kernel_size,
-            stride=self.stride,
-            padding=self.padding,
-            dilation=self.lkb_origin.conv.dilation,
-            groups=self.groups,
-            bias=True,
-        )
+        if MULTI_DEPWISE_CONV:
 
-        self.lkb_reparam.weight.data = eq_k
-        self.lkb_reparam.bias.data = eq_b
+            self.lkb_reparam0 = nn.Conv2d(
+                in_channels=self.in_channels,
+                out_channels=self.out_channels,
+                kernel_size=self.kernel_size,
+                stride=self.stride,
+                padding=self.padding,
+                dilation=self.lkb_origin.conv.dilation,
+                groups=self.in_channels,
+                bias=True,
+            )
+            self.lkb_reparam1 = nn.Conv2d(
+                in_channels=self.in_channels,
+                out_channels=self.out_channels,
+                kernel_size=self.kernel_size,
+                stride=self.stride,
+                padding=self.padding,
+                dilation=self.lkb_origin.conv.dilation,
+                groups=self.in_channels,
+                bias=True,
+            )
+
+            self.lkb_reparam0.weight.data = eq_k[0::2,:,:,:]
+            self.lkb_reparam0.bias.data = eq_b[0::2]
+            self.lkb_reparam1.weight.data = eq_k[1::2,:,:,:]
+            self.lkb_reparam1.bias.data = eq_b[1::2]
+        else:
+            self.lkb_reparam0 = nn.Conv2d(
+                in_channels=self.in_channels,
+                out_channels=self.out_channels,
+                kernel_size=self.kernel_size,
+                stride=self.stride,
+                padding=self.padding,
+                dilation=self.lkb_origin.conv.dilation,
+                groups=self.groups,
+                bias=True,
+            )
+
+            self.lkb_reparam0.weight.data = eq_k
+            self.lkb_reparam0.bias.data = eq_b
+
         self.__delattr__("lkb_origin")
         if hasattr(self, "small_conv"):
             self.__delattr__("small_conv")
