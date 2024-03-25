@@ -61,7 +61,7 @@ default_cfgs = {
 
 
 def convolutional_stem(
-    in_channels: int, out_channels: int, inference_mode: bool = False,act_layer:nn.Module=nn.ReLU6,
+        in_channels: int, out_channels: int, inference_mode: bool = False, act_layer: nn.Module = nn.ReLU6,
 ) -> nn.Sequential:
     """Build convolutional stem with MobileOne blocks.
 
@@ -121,12 +121,12 @@ class MHSA(nn.Module):
     """
 
     def __init__(
-        self,
-        dim: int,
-        head_dim: int = 32,
-        qkv_bias: bool = False,
-        attn_drop: float = 0.0,
-        proj_drop: float = 0.0,
+            self,
+            dim: int,
+            head_dim: int = 32,
+            qkv_bias: bool = False,
+            attn_drop: float = 0.0,
+            proj_drop: float = 0.0,
     ) -> None:
         """Build MHSA module that can handle 3D or 4D input tensors.
 
@@ -141,7 +141,7 @@ class MHSA(nn.Module):
         assert dim % head_dim == 0, "dim should be divisible by head_dim"
         self.head_dim = head_dim
         self.num_heads = dim // head_dim
-        self.scale = head_dim**-0.5
+        self.scale = head_dim ** -0.5
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.attn_drop = nn.Dropout(attn_drop)
@@ -156,8 +156,8 @@ class MHSA(nn.Module):
             x = torch.flatten(x, start_dim=2).transpose(-2, -1)  # (B, N, C)
         qkv = (
             self.qkv(x)
-            .reshape(B, N, 3, self.num_heads, self.head_dim)
-            .permute(2, 0, 3, 1, 4)
+                .reshape(B, N, 3, self.num_heads, self.head_dim)
+                .permute(2, 0, 3, 1, 4)
         )
         q, k, v = qkv.unbind(0)  # make torchscript happy (cannot use tensor as tuple)
 
@@ -179,13 +179,13 @@ class PatchEmbed(nn.Module):
     """Convolutional patch embedding layer."""
 
     def __init__(
-        self,
-        patch_size: int,
-        stride: int,
-        in_channels: int,
-        embed_dim: int,
-        inference_mode: bool = False,
-        activation:nn.Module=nn.ReLU6,
+            self,
+            patch_size: int,
+            stride: int,
+            in_channels: int,
+            embed_dim: int,
+            inference_mode: bool = False,
+            activation: nn.Module = nn.ReLU6,
     ) -> None:
         """Build patch embedding layer.
 
@@ -239,12 +239,12 @@ class RepMixer(nn.Module):
     """
 
     def __init__(
-        self,
-        dim,
-        kernel_size=3,
-        use_layer_scale=True,
-        layer_scale_init_value=1e-5,
-        inference_mode: bool = False,
+            self,
+            dim,
+            kernel_size=3,
+            use_layer_scale=True,
+            layer_scale_init_value=1e-5,
+            inference_mode: bool = False,
     ):
         """Build RepMixer Module.
 
@@ -318,16 +318,16 @@ class RepMixer(nn.Module):
 
         if self.use_layer_scale:
             w = self.mixer.id_tensor + self.layer_scale.unsqueeze(-1) * (
-                self.mixer.reparam_conv.weight - self.norm.reparam_conv.weight
+                    self.mixer.reparam_conv.weight - self.norm.reparam_conv.weight
             )
             b = torch.squeeze(self.layer_scale) * (
-                self.mixer.reparam_conv.bias - self.norm.reparam_conv.bias
+                    self.mixer.reparam_conv.bias - self.norm.reparam_conv.bias
             )
         else:
             w = (
-                self.mixer.id_tensor
-                + self.mixer.reparam_conv.weight
-                - self.norm.reparam_conv.weight
+                    self.mixer.id_tensor
+                    + self.mixer.reparam_conv.weight
+                    - self.norm.reparam_conv.weight
             )
             b = self.mixer.reparam_conv.bias - self.norm.reparam_conv.bias
 
@@ -355,12 +355,12 @@ class ConvFFN(nn.Module):
     """Convolutional FFN Module."""
 
     def __init__(
-        self,
-        in_channels: int,
-        hidden_channels: Optional[int] = None,
-        out_channels: Optional[int] = None,
-        act_layer: nn.Module = nn.ReLU6,
-        drop: float = 0.0,
+            self,
+            in_channels: int,
+            hidden_channels: Optional[int] = None,
+            out_channels: Optional[int] = None,
+            act_layer: nn.Module = nn.ReLU6,
+            drop: float = 0.0,
     ) -> None:
         """Build convolutional FFN module.
 
@@ -419,11 +419,11 @@ class RepCPE(nn.Module):
     """
 
     def __init__(
-        self,
-        in_channels: int,
-        embed_dim: int = 768,
-        spatial_shape: Union[int, Tuple[int, int]] = (7, 7),
-        inference_mode=False,
+            self,
+            in_channels: int,
+            embed_dim: int = 768,
+            spatial_shape: Union[int, Tuple[int, int]] = (7, 7),
+            inference_mode=False,
     ) -> None:
         """Build reparameterizable conditional positional encoding
 
@@ -531,16 +531,16 @@ class RepMixerBlock(nn.Module):
     """
 
     def __init__(
-        self,
-        dim: int,
-        kernel_size: int = 3,
-        mlp_ratio: float = 4.0,
-        act_layer: nn.Module = nn.ReLU6,
-        drop: float = 0.0,
-        drop_path: float = 0.0,
-        use_layer_scale: bool = True,
-        layer_scale_init_value: float = 1e-5,
-        inference_mode: bool = False,
+            self,
+            dim: int,
+            kernel_size: int = 3,
+            mlp_ratio: float = 4.0,
+            act_layer: nn.Module = nn.ReLU6,
+            drop: float = 0.0,
+            drop_path: float = 0.0,
+            use_layer_scale: bool = True,
+            layer_scale_init_value: float = 1e-5,
+            inference_mode: bool = False,
     ):
         """Build RepMixer Block.
 
@@ -598,14 +598,14 @@ class RepMixerBlock(nn.Module):
 
     def reparameterize(self) -> None:
         if self.use_layer_scale:
-            fc2_w=self.convffn.fc2.weight.data
-            fc2_b=self.convffn.fc2.bias.data
-            lc=self.layer_scale.data
-            self.use_layer_scale=False
-            fc2_w=fc2_w*lc[:,:,:,None]
-            fc2_b=fc2_b*lc[:,0,0]
-            self.convffn.fc2.weight.data=fc2_w.detach_()
-            self.convffn.fc2.bias.data=fc2_b.detach_()
+            fc2_w = self.convffn.fc2.weight.data
+            fc2_b = self.convffn.fc2.bias.data
+            lc = self.layer_scale.data
+            self.use_layer_scale = False
+            fc2_w = fc2_w * lc[:, :, :, None]
+            fc2_b = fc2_b * lc[:, 0, 0]
+            self.convffn.fc2.weight.data = fc2_w.detach_()
+            self.convffn.fc2.bias.data = fc2_b.detach_()
 
 
 class AttentionBlock(nn.Module):
@@ -616,15 +616,15 @@ class AttentionBlock(nn.Module):
     """
 
     def __init__(
-        self,
-        dim: int,
-        mlp_ratio: float = 4.0,
-        act_layer: nn.Module = nn.ReLU6,
-        norm_layer: nn.Module = nn.BatchNorm2d,
-        drop: float = 0.0,
-        drop_path: float = 0.0,
-        use_layer_scale: bool = True,
-        layer_scale_init_value: float = 1e-5,
+            self,
+            dim: int,
+            mlp_ratio: float = 4.0,
+            act_layer: nn.Module = nn.ReLU6,
+            norm_layer: nn.Module = nn.BatchNorm2d,
+            drop: float = 0.0,
+            drop_path: float = 0.0,
+            use_layer_scale: bool = True,
+            layer_scale_init_value: float = 1e-5,
     ):
         """Build Attention Block.
 
@@ -679,19 +679,19 @@ class AttentionBlock(nn.Module):
 
 
 def basic_blocks(
-    dim: int,
-    block_index: int,
-    num_blocks: List[int],
-    token_mixer_type: str,
-    kernel_size: int = 3,
-    mlp_ratio: float = 4.0,
-    act_layer: nn.Module = nn.ReLU6,
-    norm_layer: nn.Module = nn.BatchNorm2d,
-    drop_rate: float = 0.0,
-    drop_path_rate: float = 0.0,
-    use_layer_scale: bool = True,
-    layer_scale_init_value: float = 1e-5,
-    inference_mode=False,
+        dim: int,
+        block_index: int,
+        num_blocks: List[int],
+        token_mixer_type: str,
+        kernel_size: int = 3,
+        mlp_ratio: float = 4.0,
+        act_layer: nn.Module = nn.ReLU6,
+        norm_layer: nn.Module = nn.BatchNorm2d,
+        drop_rate: float = 0.0,
+        drop_path_rate: float = 0.0,
+        use_layer_scale: bool = True,
+        layer_scale_init_value: float = 1e-5,
+        inference_mode=False,
 ) -> nn.Sequential:
     """Build FastViT blocks within a stage.
 
@@ -716,9 +716,9 @@ def basic_blocks(
     blocks = []
     for block_idx in range(num_blocks[block_index]):
         block_dpr = (
-            drop_path_rate
-            * (block_idx + sum(num_blocks[:block_index]))
-            / (sum(num_blocks) - 1)
+                drop_path_rate
+                * (block_idx + sum(num_blocks[:block_index]))
+                / (sum(num_blocks) - 1)
         )
         if token_mixer_type == "repmixer":
             blocks.append(
@@ -762,29 +762,31 @@ class FastViT(nn.Module):
     """
 
     def __init__(
-        self,
-        layers,
-        token_mixers: Tuple[str, ...],
-        embed_dims=None,
-        mlp_ratios=None,
-        downsamples=None,
-        repmixer_kernel_size=3,
-        norm_layer: nn.Module = nn.BatchNorm2d,
-        act_layer: nn.Module = nn.ReLU6,
-        num_classes=101,
-        pos_embs=None,
-        down_patch_size=7,
-        down_stride=2,
-        drop_rate=0.0,
-        drop_path_rate=0.0,
-        use_layer_scale=True,
-        layer_scale_init_value=1e-5,
-        fork_feat=False,
-        init_cfg=None,
-        pretrained=None,
-        cls_ratio=2.0,
-        inference_mode=False,
-        **kwargs,
+            self,
+            layers,
+            token_mixers: Tuple[str, ...],
+            embed_dims=None,
+            mlp_ratios=None,
+            downsamples=None,
+            repmixer_kernel_size=3,
+            norm_layer: nn.Module = nn.BatchNorm2d,
+            act_layer: nn.Module = nn.ReLU6,
+            num_classes=101,
+            pos_embs=None,
+            down_patch_size=7,
+            down_stride=2,
+            drop_rate=0.0,
+            drop_path_rate=0.0,
+            use_layer_scale=True,
+            layer_scale_init_value=1e-5,
+            fork_feat=False,
+            init_cfg=None,
+            pretrained=None,
+            cls_ratio=2.0,
+            inference_mode=False,
+            separation=0,
+            separation_scale=2,
+            **kwargs,
     ) -> None:
 
         super().__init__()
@@ -797,7 +799,7 @@ class FastViT(nn.Module):
             pos_embs = [None] * len(layers)
 
         # Convolutional stem
-        self.patch_embed = convolutional_stem(3, embed_dims[0], inference_mode,act_layer=act_layer)
+        self.patch_embed = convolutional_stem(3, embed_dims[0], inference_mode, act_layer=act_layer)
 
         # Build the main stages of the network architecture
         network = []
@@ -885,6 +887,33 @@ class FastViT(nn.Module):
         if self.fork_feat and (self.init_cfg is not None or pretrained is not None):
             self.init_weights()
 
+        self.separation = separation
+        self.separation_scale = separation_scale
+
+        self.stage_list = [self.patch_embed[0], self.feat1, self.feat2, self.feat3, self.feat4]
+        self.stage_out_channels = [embed_dims[0],
+                                   embed_dims[0],
+                                   embed_dims[1],
+                                   embed_dims[2],
+                                   embed_dims[3], ]
+        self.export = 0
+
+    def feat1(self,x):
+        x = self.patch_embed[1:](x)
+        return self.network[0](x)
+
+    def feat2(self,x):
+        x = self.network[1](x)
+        return self.network[2](x)
+
+    def feat3(self,x):
+        x = self.network[3](x)
+        return self.network[4](x)
+
+    def feat4(self,x):
+        x = self.network[5](x)
+        return self.network[6](x)
+
     def cls_init_weights(self, m: nn.Module) -> None:
         """Init. for classification"""
         if isinstance(m, nn.Linear):
@@ -942,6 +971,92 @@ class FastViT(nn.Module):
         x = self.patch_embed(x)
         return x
 
+    def seperate(self, x):
+        bs, ch, h, w = x.shape
+
+        # loop crop method
+        # x_list = []
+        # for r in range(0, self.separation_scale):
+        #     for c in range(0, self.separation_scale):
+        #         x_list.append(x[:, :,
+        #                       r * h // self.separation_scale:(r + 1) * h // self.separation_scale,
+        #                       c * w // self.separation_scale:(c + 1) * w // self.separation_scale
+        #                       ])
+        # x = torch.cat(x_list, dim=0)
+
+        # change dimension method
+        x = x.view(bs, ch, self.separation_scale, h // self.separation_scale, self.separation_scale,
+                   w // self.separation_scale)
+        x = x.permute(0, 2, 4, 1, 3, 5)
+        x = x.reshape(bs * self.separation_scale ** 2, ch, h // self.separation_scale, w // self.separation_scale)
+        return x
+
+    def montage(self, x):
+        bs, ch, h, w = x.shape
+        # loop crop method
+        # x_list = torch.split(x, bs // self.separation_scale ** 2, dim=0)
+        # xr_list = []
+        # for c in range(0, self.separation_scale):
+        #     xr_list.append(torch.cat(x_list[c * self.separation_scale:(c + 1) * self.separation_scale], dim=3))
+        # x = torch.cat(xr_list, dim=2)
+
+        # change dimension method
+        x = x.view(bs // self.separation_scale ** 2, self.separation_scale, self.separation_scale, ch, h, w)
+        x = x.permute(0, 3, 1, 4, 2, 5)
+        x = x.reshape(bs // self.separation_scale ** 2, ch, self.separation_scale * h,
+                      self.separation_scale * w)
+        return x
+
+    def _forward_sp(self, x):
+        export = self.export
+        if export == 0 or (export > 0 and self.separation == 0):
+            if self.separation:
+                x = self.seperate(x)
+            for i, stg in enumerate(self.stage_list):
+                x = stg(x)
+                if self.separation == i + 1:
+                    x = self.montage(x)
+        elif export == 1:
+            for i, stg in enumerate(self.stage_list):
+                x = stg(x)
+                if self.separation == i + 1:
+                    return x
+        elif export == 2:
+            for i, stg in enumerate(self.stage_list):
+                if self.separation < i + 1:
+                    x = stg(x)
+        elif export == 3:
+            assert self.separation > 0
+            assert self.separation_scale > 1
+            bs, ch, h, w = x.shape
+            x_list = []
+            for r in range(0, self.separation_scale):
+                for c in range(0, self.separation_scale):
+                    x_list.append(x[:, :,
+                                  r * h // self.separation_scale:(r + 1) * h // self.separation_scale,
+                                  c * w // self.separation_scale:(c + 1) * w // self.separation_scale
+                                  ])
+            fuse = False
+            for i, stg in enumerate(self.stage_list):
+                if fuse:
+                    x = stg(x)
+                else:
+                    for id, x in enumerate(x_list):
+                        x = stg(x)
+                        x_list[id] = x
+                if self.separation == i + 1:
+                    xr_list = []
+                    for c in range(0, self.separation_scale):
+                        xr_list.append(
+                            torch.cat(x_list[c * self.separation_scale:(c + 1) * self.separation_scale], dim=3))
+                    x = torch.cat(xr_list, dim=2)
+                    fuse = True
+        x = self.conv_exp(x)
+        x = self.gap(x)
+        x = x.view(x.size(0), -1)
+        cls_out = self.head(x)
+        return cls_out
+
     def forward_tokens(self, x: torch.Tensor) -> torch.Tensor:
         outs = []
         for idx, block in enumerate(self.network):
@@ -958,18 +1073,22 @@ class FastViT(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # input embedding
-        x = self.forward_embeddings(x)
-        # through backbone
-        x = self.forward_tokens(x)
-        if self.fork_feat:
-            # output features of four stages for dense prediction
-            return x
+        # x = self.forward_embeddings(x)
+        # # through backbone
+        # x = self.forward_tokens(x)
+        # if self.fork_feat:
+        #     # output features of four stages for dense prediction
+        #     return x
+
+        return self._forward_sp(x)
+
         # for image classification
-        x = self.conv_exp(x)
-        x = self.gap(x)
-        x = x.view(x.size(0), -1)
-        cls_out = self.head(x)
-        return cls_out
+        # x = self.conv_exp(x)
+        # x = self.gap(x)
+        # x = x.view(x.size(0), -1)
+        # cls_out = self.head(x)
+        # return cls_out
+
 
 @register_model
 def fastvit_t4(pretrained=False, **kwargs):
@@ -991,6 +1110,7 @@ def fastvit_t4(pretrained=False, **kwargs):
     # if pretrained:
     #     raise ValueError("Functionality not implemented.")
     return model
+
 
 @register_model
 def fastvit_t8(pretrained=False, **kwargs):

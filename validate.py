@@ -315,11 +315,13 @@ class ClassifierTfOrt():
                 self.fix1 = -self.fix0 * mean0 + mean1
             self.sp = 1
             self.weight, self.bias = self.model_front.model_input_details["quantization"]
+            self.input_size=self.separation_scale*self.model_front.model_input_details["shape"][1:]
         else:
             self.model = tfOrtModelRuner(model_path)
             self.sp = 0
             self.model_type = os.path.splitext(model_path)[-1]
             self.weight, self.bias = self.model.model_input_details["quantization"]
+            self.input_size = self.model.model_input_details["shape"][1:]
 
     def __call__(self, inputs):
         pred_list0 = []
@@ -375,7 +377,7 @@ class ClassifierTfOrt():
         return out0
 
 
-def cfg_analyzer(cfg_path, model_path, eval_type,img_size):
+def cfg_analyzer(cfg_path, model_path, eval_type,img_size=None):
     with open(cfg_path, "r") as f:
         cfg = yaml.safe_load(f)
         parser.set_defaults(**cfg)
@@ -444,7 +446,12 @@ def cfg_analyzer(cfg_path, model_path, eval_type,img_size):
         real_labels = None
 
     crop_pct = 1.0 if test_time_pool else data_config["crop_pct"]
-    if img_size is not None:
+    model.eval()
+    model.cuda()
+    if eval_type != 0:
+        model = ClassifierTfOrt(cfg, model_path)
+        data_config["input_size"] = (data_config["input_size"][0], model.input_size[0], model.input_size[1])
+    elif img_size is not None:
         data_config["input_size"]=(data_config["input_size"][0],img_size[0],img_size[1])
     loader = create_loader(
         dataset,
@@ -465,10 +472,8 @@ def cfg_analyzer(cfg_path, model_path, eval_type,img_size):
     top1 = AverageMeter()
     top5 = AverageMeter()
 
-    model.eval()
-    model.cuda()
-    if eval_type != 0:
-        model = ClassifierTfOrt(cfg, model_path)
+
+
     return model, args, data_config, amp_autocast, valid_labels, criterion, real_labels, batch_time, loader, losses, top1, top5, crop_pct
 
 
@@ -513,7 +518,7 @@ def validate(cfg_path, model_path, eval_type,img_size=None):
             end = time.time()
 
             if batch_idx % args.log_freq == 0:
-                _logger.info(
+                print(
                     "Test: [{0:>4d}/{1}]  "
                     "Time: {batch_time.val:.3f}s ({batch_time.avg:.3f}s, {rate_avg:>7.2f}/s)  "
                     "Loss: {loss.val:>7.4f} ({loss.avg:>6.4f})  "
@@ -544,7 +549,7 @@ def validate(cfg_path, model_path, eval_type,img_size=None):
         interpolation=data_config["interpolation"],
     )
 
-    _logger.info(
+    print(
         " * Acc@1 {:.3f} ({:.3f}) Acc@5 {:.3f} ({:.3f})".format(
             results["top1"], results["top1_err"], results["top5"], results["top5_err"]
         )
