@@ -195,24 +195,24 @@ class MobileNetV3(nn.Module):
 
         # building last several layers
         lastconv_input_channels = inverted_residual_setting[-1].out_channels
-        lastconv_output_channels = 6 * lastconv_input_channels
-        layers.append(
-            Conv2dNormActivation(
-                lastconv_input_channels,
-                lastconv_output_channels,
-                kernel_size=1,
-                norm_layer=norm_layer,
-                activation_layer=activation,
-            )
-        )
+        # lastconv_output_channels = 6 * lastconv_input_channels
+        # layers.append(
+        #     Conv2dNormActivation(
+        #         lastconv_input_channels,
+        #         lastconv_output_channels,
+        #         kernel_size=1,
+        #         norm_layer=norm_layer,
+        #         activation_layer=activation,
+        #     )
+        # )
 
         self.features = nn.Sequential(*layers)
         self.avgpool = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Sequential(
-            nn.Linear(lastconv_output_channels, last_channel),
-            activation(inplace=True),
-            nn.Dropout(p=dropout, inplace=True),
-            nn.Linear(last_channel, num_classes),
+            # nn.Linear(lastconv_input_channels, last_channel),
+            # activation(inplace=True),
+            # nn.Dropout(p=dropout, inplace=True),
+            nn.Linear(lastconv_input_channels, num_classes),
         )
 
         for m in self.modules():
