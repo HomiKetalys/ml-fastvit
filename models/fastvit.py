@@ -389,6 +389,7 @@ class ConvFFN(nn.Module):
         self.conv.add_module("bn", nn.BatchNorm2d(num_features=out_channels))
         self.fc1 = nn.Conv2d(in_channels, hidden_channels, kernel_size=1)
         self.act = act_layer(inplace=True)
+
         self.fc2 = nn.Conv2d(hidden_channels, out_channels, kernel_size=1)
         self.drop = nn.Dropout(drop)
         self.apply(self._init_weights)
@@ -658,6 +659,7 @@ class AttentionBlock(nn.Module):
         # Drop path
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
+
         # Layer Scale
         self.use_layer_scale = use_layer_scale
         if use_layer_scale:
@@ -676,6 +678,7 @@ class AttentionBlock(nn.Module):
             x = x + self.drop_path(self.token_mixer(self.norm(x)))
             x = x + self.drop_path(self.convffn(x))
         return x
+
 
 
 def basic_blocks(
@@ -1057,6 +1060,75 @@ class FastViT(nn.Module):
         cls_out = self.head(x)
         return cls_out
 
+    def forward_features(self,x):
+        export = self.export
+        if export == 0 or (export > 0 and self.separation == 0):
+            if self.separation:
+                x = self.seperate(x)
+            C2 = None
+            for i, stg in enumerate(self.stage_list):
+                if i == len(self.stage_list) - 1:
+                    C2 = x
+                x = stg(x)
+                if self.separation == i + 1:
+                    x = self.montage(x)
+            C3 = x
+            if C2 is not None:
+                return C2, C3
+            else:
+                return C3
+        elif export == 1:
+            for i, stg in enumerate(self.stage_list):
+                x = stg(x)
+                if self.separation == i + 1:
+                    return x
+        elif export == 2:
+            C2 = None
+            for i, stg in enumerate(self.stage_list):
+                if i == len(self.stage_list) - 1:
+                    C2 = x
+                if self.separation < i + 1:
+                    x = stg(x)
+            C3 = x
+            if C2 is not None:
+                return C2, C3
+            else:
+                return C3
+        elif export == 3:
+            assert self.separation > 0
+            assert self.separation_scale > 1
+            bs, ch, h, w = x.shape
+            x_list = []
+            for r in range(0, self.separation_scale):
+                for c in range(0, self.separation_scale):
+                    x_list.append(x[:, :,
+                                  r * h // self.separation_scale:(r + 1) * h // self.separation_scale,
+                                  c * w // self.separation_scale:(c + 1) * w // self.separation_scale
+                                  ])
+            C2 = None
+            fuse = False
+            for i, stg in enumerate(self.stage_list):
+                if i == len(self.stage_list) - 1:
+                    C2 = x
+                if fuse:
+                    x = stg(x)
+                else:
+                    for id, x in enumerate(x_list):
+                        x = stg(x)
+                        x_list[id] = x
+                if self.separation == i + 1:
+                    xr_list = []
+                    for c in range(0, self.separation_scale):
+                        xr_list.append(
+                            torch.cat(x_list[c * self.separation_scale:(c + 1) * self.separation_scale], dim=3))
+                    x = torch.cat(xr_list, dim=2)
+                    fuse = True
+            C3 = x
+            if C2 is not None:
+                return C2, C3
+            else:
+                return C3
+
     def forward_tokens(self, x: torch.Tensor) -> torch.Tensor:
         outs = []
         for idx, block in enumerate(self.network):
@@ -1071,7 +1143,7 @@ class FastViT(nn.Module):
         # output only the features of last layer for image classification
         return x
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor,export=0,features=False) -> torch.Tensor:
         # input embedding
         # x = self.forward_embeddings(x)
         # # through backbone
@@ -1080,7 +1152,11 @@ class FastViT(nn.Module):
         #     # output features of four stages for dense prediction
         #     return x
 
-        return self._forward_sp(x)
+        if features:
+            self.export = export
+            return self.forward_features(x)
+        else:
+            return self._forward_sp(x)
 
         # for image classification
         # x = self.conv_exp(x)
@@ -1095,6 +1171,27 @@ def fastvit_t4(pretrained=False, **kwargs):
     """Instantiate FastViT-T4 model variant."""
     layers = [1, 1, 2, 1]
     embed_dims = [24, 48, 96, 192]
+    mlp_ratios = [2, 2, 1, 1]
+    downsamples = [True, True, True, True]
+    token_mixers = ("repmixer", "repmixer", "repmixer", "repmixer")
+    model = FastViT(
+        layers,
+        token_mixers=token_mixers,
+        embed_dims=embed_dims,
+        mlp_ratios=mlp_ratios,
+        downsamples=downsamples,
+        **kwargs,
+    )
+    model.default_cfg = default_cfgs["fastvit_t"]
+    # if pretrained:
+    #     raise ValueError("Functionality not implemented.")
+    return model
+
+@register_model
+def fastvit_t3(pretrained=False, **kwargs):
+    """Instantiate FastViT-T3 model variant."""
+    layers = [1, 1 ,2, 1]
+    embed_dims = [16, 32, 64, 128]
     mlp_ratios = [2, 2, 1, 1]
     downsamples = [True, True, True, True]
     token_mixers = ("repmixer", "repmixer", "repmixer", "repmixer")

@@ -207,7 +207,7 @@ class MobileOneBlock(nn.Module):
         self.reparam_conv.weight.data = kernel
         self.reparam_conv.bias.data = bias
 
-        if MULTI_DEPWISE_CONV:
+        if MULTI_DEPWISE_CONV and self.out_channels==2*self.in_channels:
             self.reparam_conv0 = nn.Conv2d(
                 in_channels=self.in_channels,
                 out_channels=self.out_channels,
