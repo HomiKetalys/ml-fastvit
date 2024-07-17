@@ -41,13 +41,15 @@ class SEBlock(nn.Module):
             stride=1,
             bias=True,
         )
+        self.rl=nn.ReLU6()
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
         """Apply forward pass."""
         b, c, h, w = inputs.size()
         x = F.avg_pool2d(inputs, kernel_size=[h, w])
         x = self.reduce(x)
-        x = F.relu6(x,inplace=True)
+        # x = self.rl(x)
+        x=F.relu6(x)
         x = self.expand(x)
         x = F.hardsigmoid(x,inplace=True)
         x = x.view(-1, c, 1, 1)
@@ -228,8 +230,6 @@ class MobileOneBlock(nn.Module):
                 groups=self.in_channels,
                 bias=True,
             )
-            self.reparam_conv.weight.data = kernel
-            self.reparam_conv.bias.data = bias
             self.reparam_conv0.weight.data = kernel[0::2,:,:,:]
             self.reparam_conv0.bias.data = bias[0::2]
             self.reparam_conv1.weight.data = kernel[1::2,:,:,:]
