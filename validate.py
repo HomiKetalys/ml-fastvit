@@ -381,7 +381,7 @@ def cfg_analyzer(cfg_path, model_path, eval_type,img_size=None):
     with open(cfg_path, "r") as f:
         cfg = yaml.safe_load(f)
         parser.set_defaults(**cfg)
-    args = parser.parse_args()
+    args = parser.parse_known_args()[0]
     # might as well try to validate something
     args.pretrained = args.pretrained or not args.checkpoint
     args.prefetcher = not args.no_prefetcher
